@@ -1,0 +1,72 @@
+{
+  "project_name": "Ghar.com - Indian Real Estate App",
+  "theme": "Light",
+  "archetype": "1 (Organic & Earthy) - Modified for Trust & Real Estate",
+  "colors": {
+    "primary": "#059669",
+    "primary_foreground": "#FFFFFF",
+    "secondary": "#D97706",
+    "background": "#F9FAFB",
+    "surface": "#FFFFFF",
+    "text": "#111827",
+    "text_muted": "#4B5563",
+    "border": "#E5E7EB"
+  },
+  "typography": {
+    "headings": "Outfit, sans-serif",
+    "body": "Manrope, sans-serif",
+    "rules": "H1 up to text-2xl, H2 text-xl, highly legible on mobile. Tracking-tight for headings."
+  },
+  "spacing_and_layout": {
+    "mobile_container": "w-full min-h-screen max-w-md mx-auto bg-gray-50 relative shadow-xl overflow-hidden",
+    "padding": "p-4 sm:p-6",
+    "gaps": "gap-4 for sections, gap-2 for internal items"
+  },
+  "component_path": {
+    "buttons": "rounded-xl font-semibold py-3.5 flex justify-center items-center active:scale-[0.98] transition-transform",
+    "property_card": "rounded-2xl bg-white border border-gray-200 overflow-hidden shadow-sm flex flex-col relative",
+    "filter_chips": "rounded-full px-4 py-1.5 text-sm whitespace-nowrap border font-medium",
+    "bottom_nav": "fixed bottom-0 w-full max-w-md bg-white border-t border-gray-200 py-3 flex justify-around z-50 pb-safe"
+  },
+  "image_urls": [
+    {
+      "url": "https://images.pexels.com/photos/18153132/pexels-photo-18153132.jpeg",
+      "category": "hero_featured",
+      "description": "Featured modern apartment exterior for the home screen carousel."
+    },
+    {
+      "url": "https://images.pexels.com/photos/35339499/pexels-photo-35339499.jpeg",
+      "category": "property_listing_1",
+      "description": "Premium flat exterior for listing card."
+    },
+    {
+      "url": "https://images.pexels.com/photos/20418771/pexels-photo-20418771.jpeg",
+      "category": "property_interior_1",
+      "description": "Luxurious living room for property details image gallery."
+    },
+    {
+      "url": "https://images.pexels.com/photos/8146330/pexels-photo-8146330.jpeg",
+      "category": "property_interior_2",
+      "description": "Bright modern room for property details image gallery."
+    },
+    {
+      "url": "https://images.pexels.com/photos/12985803/pexels-photo-12985803.jpeg",
+      "category": "user_avatar",
+      "description": "Indian family/owner portrait for owner contact card or user profile."
+    }
+  ],
+  "accessibility": {
+    "contrast": "Ensure text over images has dark gradients underneath (e.g. bg-gradient-to-t from-black/70 to-transparent).",
+    "testing": "All interactive elements MUST include data-testid attributes (e.g., data-testid='contact-owner-btn')."
+  },
+  "instructions_to_main_agent": [
+    "Build the UI focusing strictly on a Mobile App experience. If building for web as a prototype, constrain the layout inside a mobile-sized container (w-full max-w-md mx-auto min-h-screen).",
+    "Create horizontal scrolling for filter chips (Buy, Rent, Budget, BHK) using flex, overflow-x-auto, snap-x, and hide scrollbar utilities.",
+    "Implement a sticky bottom Navigation Bar containing Home, Search, Saved, Chat, Profile.",
+    "The property detail page must have a sticky bottom CTA area featuring 'Contact Owner' and 'Schedule Visit' buttons.",
+    "Use Lucide-React for all icons. Ensure icons inside property cards are sized appropriately (e.g., w-4 h-4 text-gray-500).",
+    "Do NOT use any placeholder images; rely exclusively on the provided image_urls array.",
+    "All components should be written in .js (not .tsx) files.",
+    "Use the color palette specified, prioritizing Emerald Green (#059669) for primary buttons, active states, and trust signals like 'Verified'."
+  ]
+}
