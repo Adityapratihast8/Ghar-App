@@ -1,0 +1,41 @@
+{
+  "summary": "Ghar.com v1.2 additions PASS end-to-end. Backend: 16/16 new pytest cases pass in /app/backend/tests/test_v12_new_features.py covering reviews (list/create/auth/rating-range/upsert-not-duplicate), bridge-calls (POST enriches with caller & owner name/phone, admin list, PUT status validation, buyer 403), admin users (list, role gating), AI price-suggest (structured JSON with per_sqft_min/max + total range + note, auth required), AI check-duplicate (exact seed title -> duplicate:true similarity 1.0; unrelated title -> duplicate:false all matches <0.5). Existing 28/28 pytest cases from iteration_2 remain green. Frontend (mobile viewport 390x844): Admin panel now shows all 5 tabs (Pending, Approved, Rejected, Calls, Users); Users tab lists 12+ users with role (buyer/owner/admin) & verified badges; Calls tab shows the bridge call log entry created via API with caller/owner names+phones and status badge (connected). Owner Add Property flow step 2 renders 'Get AI Price Suggestion' dashed button; tapping it with Mumbai/Andheri/1000 sqft/2BHK returns a suggested range (₹55-85/sqft, ₹55,000-₹85,000) and pre-fills Monthly Rent to 55000. Step 3 has 'Add Photo' tile + Amenities + Description with 'Generate with AI'; tapping Submit for Review without photos correctly shows red error 'Please upload at least 1 photo of your property'. Buyer property detail page shows Reviews & Ratings section with avg + count, 'Write a Review' opens sheet with 5 star pickers + textarea; submitting a 4-star review updates the list in-place and toast 'Thanks for your review!' appears. Tapping Call opens Ghar Connect bridge modal AND a POST to /api/bridge-calls is fired (verified via network capture); the entry is visible in Admin -> Calls tab. Deprecated Expo/RN style warnings (shadow*/pointerEvents) still present (carried from iteration_2) - non-blocking cosmetic.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "Multiple screens", "issue": "Console deprecation still present: '\"shadow*\" style props are deprecated. Use \"boxShadow\".' Migrate shadowColor/shadowOffset/shadowOpacity/shadowRadius -> boxShadow across /app/frontend/app and /app/frontend/src (carried from iteration_2)."},
+      {"component": "Multiple screens", "issue": "Console deprecation still present: 'props.pointerEvents is deprecated. Use style.pointerEvents' (carried from iteration_2)."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v12_new_features.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_v12_results.xml"
+  ],
+  "action_items": [
+    "(Non-blocking) Migrate deprecated RN props: shadow* -> boxShadow, pointerEvents prop -> style.pointerEvents across the app.",
+    "(Optional hardening) POST /api/bridge-calls currently only requires auth (any role can log a call). If desired, restrict to non-owners of the target property to prevent noise, or add rate-limiting per (user,property).",
+    "(Optional UX) After AI Price Suggestion pre-fills the price, consider disabling the button briefly to avoid duplicate LLM calls if a user double-taps."
+  ],
+  "critical_code_review_comments": [
+    "server.py review upsert correctly uses {property_id, user_id} composite key with $set on r.model_dump() – count stays 1 for the same user (verified). One subtle detail: r.model_dump() regenerates `id` and `created_at` each call, so the review's id/created_at get replaced on every update. Acceptable but consider using $setOnInsert for id/created_at and $set for rating/comment/updated_at if edit history matters.",
+    "server.py /api/ai/check-duplicate performs an exact case-insensitive city match and a regex substring match on locality – be aware locality regex is un-escaped user input; consider re.escape() before injecting to avoid ReDoS or query errors on values like '.*'.",
+    "server.py /api/bridge-calls does not require the caller to be authenticated as buyer – owner can also POST a call on their own listing, which will show up in admin panel as pending. Consider blocking self-calls or at least labelling them.",
+    "add.tsx price-suggest-btn and submit flow works, but the Submit button remains enabled during network request; consider a spinner state to prevent double submissions."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_v12_new_features.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (16/16 new v1.2 cases; total suite 44/44 including previous 28)",
+    "frontend": "100% for all v1.2 flows tested: admin 5 tabs, users list, calls log entry, owner AI price suggest + photo error, buyer reviews submit, buyer Call -> bridge modal + POST /api/bridge-calls"
+  },
+  "seed_data_creation": "Test run created: (a) 1 bridge call entry (Priya Sharma -> Rajesh Kumar) via UI + backend, visible in admin Calls tab, (b) 1 review by buyer on 'Spacious 3BHK Apartment in Powai' (4 stars, 'TEST great property from playwright'), (c) previous iteration_2 test data persists.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All v1.2 backend endpoints and UI flows are verified working. If retesting is needed, use backend_test.py + test_v12_new_features.py together (they share seeded admin/owner/buyer credentials). For UI, key flows to re-check: (1) admin.tsx tabs Users & Calls, (2) property/add.tsx step 2 price-suggest + step 3 photo error, (3) property/[id].tsx Reviews section + Ghar Connect bridge modal on Call tap. Real device image picker not testable in Playwright — verify manually or via Expo Go if needed.",
+  "rca_of_issue": "N/A — no bugs found in this iteration. All 15 test items from the review request pass on both backend API and mobile UI."
+}

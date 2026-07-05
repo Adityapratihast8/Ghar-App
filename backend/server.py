@@ -148,6 +148,56 @@ class ChatBotMsg(BaseModel):
     message: str
 
 
+class ReviewCreate(BaseModel):
+    property_id: str
+    rating: int  # 1..5
+    comment: str = ""
+
+
+class Review(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    property_id: str
+    user_id: str
+    user_name: str = ""
+    rating: int
+    comment: str = ""
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class CallRequestCreate(BaseModel):
+    property_id: str
+
+
+class CallRequest(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    property_id: str
+    property_title: str = ""
+    caller_id: str
+    caller_name: str = ""
+    caller_phone: str = ""
+    owner_id: str
+    owner_name: str = ""
+    owner_phone: str = ""
+    status: Literal["pending", "connected", "missed"] = "pending"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PriceSuggestReq(BaseModel):
+    city: str
+    locality: str
+    category: str
+    listing_type: str
+    area: float
+    bedrooms: int = 0
+
+
+class DuplicateCheckReq(BaseModel):
+    title: str
+    city: str
+    locality: str
+    bedrooms: int = 0
+
+
 # ----------- Auth helpers -----------
 def create_token(user_id: str) -> str:
     payload = {"sub": user_id, "exp": datetime.now(timezone.utc) + timedelta(days=30)}
@@ -565,6 +615,165 @@ Write in engaging English, highlight lifestyle benefits, mention key amenities. 
     except Exception as e:
         logger.exception("AI generation failed")
         raise HTTPException(status_code=500, detail=f"AI generation failed: {e}")
+
+
+# ----------- Reviews -----------
+@api_router.get("/properties/{property_id}/reviews")
+async def list_reviews(property_id: str):
+    revs = await db.reviews.find({"property_id": property_id}, {"_id": 0}).sort("created_at", -1).to_list(length=200)
+    agg = await db.reviews.aggregate([
+        {"$match": {"property_id": property_id}},
+        {"$group": {"_id": "$property_id", "avg": {"$avg": "$rating"}, "count": {"$sum": 1}}},
+    ]).to_list(length=1)
+    stats = agg[0] if agg else {"avg": 0, "count": 0}
+    return {"reviews": revs, "avg_rating": round(stats.get("avg", 0), 1), "count": stats.get("count", 0)}
+
+
+@api_router.post("/properties/{property_id}/reviews")
+async def add_review(property_id: str, payload: ReviewCreate, user: dict = Depends(get_current_user)):
+    prop = await db.properties.find_one({"id": property_id}, {"_id": 0})
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+    if not 1 <= payload.rating <= 5:
+        raise HTTPException(status_code=400, detail="Rating must be 1-5")
+    # one review per user per property (upsert)
+    r = Review(
+        property_id=property_id,
+        user_id=user["id"],
+        user_name=user.get("name") or "User",
+        rating=payload.rating,
+        comment=payload.comment,
+    )
+    await db.reviews.update_one(
+        {"property_id": property_id, "user_id": user["id"]},
+        {"$set": r.model_dump()},
+        upsert=True,
+    )
+    return r.model_dump()
+
+
+# ----------- Bridge Call Logging -----------
+@api_router.post("/bridge-calls")
+async def log_bridge_call(payload: CallRequestCreate, user: dict = Depends(get_current_user)):
+    prop = await db.properties.find_one({"id": payload.property_id}, {"_id": 0})
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+    owner = await db.users.find_one({"id": prop["owner_id"]}, {"_id": 0})
+    req = CallRequest(
+        property_id=payload.property_id,
+        property_title=prop.get("title", ""),
+        caller_id=user["id"],
+        caller_name=user.get("name") or "User",
+        caller_phone=user.get("phone", ""),
+        owner_id=prop["owner_id"],
+        owner_name=(owner or {}).get("name", ""),
+        owner_phone=(owner or {}).get("phone", ""),
+    )
+    await db.call_requests.insert_one(req.model_dump())
+    return req.model_dump()
+
+
+# ----------- AI Price Suggestion -----------
+@api_router.post("/ai/price-suggest")
+async def ai_price_suggest(req: PriceSuggestReq, user: dict = Depends(get_current_user)):
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta
+    except ImportError:
+        raise HTTPException(status_code=500, detail="AI service not available")
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=500, detail="AI key not configured")
+
+    prompt = (
+        f"You are a real-estate price analyst for India. Estimate a realistic per-square-foot rate range "
+        f"(in INR) for the following property. Respond in this EXACT JSON format only, no extra text:\n"
+        f'{{"per_sqft_min": <int>, "per_sqft_max": <int>, "estimated_total_min": <int>, "estimated_total_max": <int>, "note": "<one-line reasoning>"}}\n\n'
+        f"Property: {req.category} in {req.locality}, {req.city}\n"
+        f"Listing type: {req.listing_type} ({'monthly rent' if req.listing_type == 'rent' else 'sale price'})\n"
+        f"Area: {req.area} sqft, Bedrooms: {req.bedrooms}\n\n"
+        f"For RENT, use realistic monthly rent per sqft (usually ₹15-₹80). For SALE use per-sqft market rate "
+        f"(₹4000-₹40000 depending on city tier). Multiply by area for total."
+    )
+    chat = LlmChat(
+        api_key=EMERGENT_LLM_KEY,
+        session_id=f"price-{uuid.uuid4()}",
+        system_message="You are a precise Indian real-estate valuation assistant. Always respond in valid JSON only.",
+    ).with_model("gemini", "gemini-3-flash-preview")
+
+    parts: List[str] = []
+    try:
+        async for ev in chat.stream_message(UserMessage(text=prompt)):
+            if isinstance(ev, TextDelta):
+                parts.append(ev.content)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI failed: {e}")
+
+    raw = "".join(parts).strip()
+    # extract JSON if wrapped in ```json ... ```
+    if "```" in raw:
+        import re
+        m = re.search(r"\{[\s\S]*\}", raw)
+        if m:
+            raw = m.group(0)
+    try:
+        import json
+        data = json.loads(raw)
+        return data
+    except Exception:
+        return {"raw": raw, "note": "Could not parse structured price. Raw AI output shown."}
+
+
+# ----------- AI Duplicate Detection -----------
+@api_router.post("/ai/check-duplicate")
+async def check_duplicate(req: DuplicateCheckReq, user: dict = Depends(get_current_user)):
+    # Simple signal-based check + AI similarity on top matches
+    q = {
+        "city": {"$regex": f"^{req.city}$", "$options": "i"},
+        "locality": {"$regex": req.locality, "$options": "i"},
+    }
+    if req.bedrooms:
+        q["bedrooms"] = req.bedrooms
+    candidates = await db.properties.find(q, {"_id": 0, "id": 1, "title": 1, "locality": 1, "city": 1, "bedrooms": 1, "owner_id": 1}).limit(10).to_list(length=10)
+    # Filter out user's own listings
+    candidates = [c for c in candidates if c.get("owner_id") != user["id"]]
+    if not candidates:
+        return {"duplicate": False, "matches": []}
+    # Signal-based title similarity (Jaccard on words)
+    def sim(a: str, b: str) -> float:
+        wa = set(w.lower() for w in a.split() if len(w) > 2)
+        wb = set(w.lower() for w in b.split() if len(w) > 2)
+        if not wa or not wb:
+            return 0.0
+        return len(wa & wb) / len(wa | wb)
+
+    scored = [
+        {**c, "similarity": round(sim(req.title, c.get("title", "")), 2)}
+        for c in candidates
+    ]
+    scored.sort(key=lambda x: x["similarity"], reverse=True)
+    top = scored[:3]
+    is_dup = any(x["similarity"] >= 0.5 for x in top)
+    return {"duplicate": is_dup, "matches": top}
+
+
+# ----------- Admin extras -----------
+@api_router.get("/admin/users")
+async def admin_users(user: dict = Depends(require_admin)):
+    users = await db.users.find({}, {"_id": 0}).sort("created_at", -1).to_list(length=500)
+    return users
+
+
+@api_router.get("/admin/call-requests")
+async def admin_call_requests(user: dict = Depends(require_admin)):
+    reqs = await db.call_requests.find({}, {"_id": 0}).sort("created_at", -1).to_list(length=300)
+    return reqs
+
+
+@api_router.put("/admin/call-requests/{req_id}")
+async def admin_update_call(req_id: str, status: str, user: dict = Depends(require_admin)):
+    if status not in ("pending", "connected", "missed"):
+        raise HTTPException(status_code=400, detail="Invalid status")
+    await db.call_requests.update_one({"id": req_id}, {"$set": {"status": status}})
+    return {"success": True}
 
 
 # ----------- Seed / Health -----------

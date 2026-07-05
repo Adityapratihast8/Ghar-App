@@ -48,12 +48,18 @@ export default function PropertyDetailScreen() {
   const [toast, setToast] = useState("");
   const [showBridge, setShowBridge] = useState(false);
   const [bridge, setBridge] = useState<{ display: string; dial: string; label: string } | null>(null);
+  const [reviews, setReviews] = useState<{ reviews: any[]; avg_rating: number; count: number }>({ reviews: [], avg_rating: 0, count: 0 });
+  const [showReview, setShowReview] = useState(false);
+  const [rating, setRating] = useState(5);
+  const [reviewText, setReviewText] = useState("");
 
   useEffect(() => {
     (async () => {
       try {
         const p = await api.getProperty(String(id));
         setProp(p);
+        const rev = await api.listReviews(String(id)).catch(() => null);
+        if (rev) setReviews(rev);
         if (user) {
           const wish = await api.getWishlist().catch(() => []);
           setSaved(!!wish.find((w: any) => w.id === p.id));
@@ -122,8 +128,26 @@ export default function PropertyDetailScreen() {
     try {
       const b = bridge || (await api.getBridge());
       setBridge(b);
+      // Log the call request for admin visibility
+      api.logBridgeCall(prop.id).catch(() => {});
     } catch {}
     setShowBridge(true);
+  };
+
+  const submitReview = async () => {
+    if (!user) return router.push("/auth/phone");
+    if (rating < 1 || rating > 5) return;
+    try {
+      await api.addReview(prop.id, rating, reviewText);
+      const rev = await api.listReviews(prop.id);
+      setReviews(rev);
+      setShowReview(false);
+      setReviewText("");
+      setToast("Thanks for your review!");
+      setTimeout(() => setToast(""), 2500);
+    } catch (e: any) {
+      setToast(e.message || "Failed to submit review");
+    }
   };
 
   const dialBridge = async () => {
@@ -250,6 +274,63 @@ export default function PropertyDetailScreen() {
               </View>
             </>
           )}
+
+          {/* Reviews section */}
+          <View style={styles.reviewHeader}>
+            <View>
+              <Text style={styles.sectionTitle}>Reviews & Ratings</Text>
+              <View style={styles.ratingSummary}>
+                <Ionicons name="star" size={16} color={colors.secondary} />
+                <Text style={styles.avgRating}>
+                  {reviews.avg_rating > 0 ? reviews.avg_rating : "New"}
+                </Text>
+                <Text style={styles.reviewCount}>
+                  ({reviews.count} {reviews.count === 1 ? "review" : "reviews"})
+                </Text>
+              </View>
+            </View>
+            {!isOwner && user ? (
+              <TouchableOpacity
+                testID="write-review-btn"
+                style={styles.writeReviewBtn}
+                onPress={() => setShowReview(true)}
+              >
+                <Ionicons name="create-outline" size={14} color={colors.primary} />
+                <Text style={styles.writeReviewText}>Write a Review</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {reviews.reviews.length === 0 ? (
+            <Text style={styles.noReviews}>Be the first to review this property.</Text>
+          ) : (
+            reviews.reviews.slice(0, 5).map((r: any) => (
+              <View key={r.id} style={styles.reviewCard}>
+                <View style={styles.reviewTop}>
+                  <View style={styles.reviewAvatar}>
+                    <Text style={styles.reviewAvatarText}>{(r.user_name?.[0] || "U").toUpperCase()}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.reviewerName}>{r.user_name || "User"}</Text>
+                    <View style={styles.starsRow}>
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <Ionicons
+                          key={s}
+                          name={s <= r.rating ? "star" : "star-outline"}
+                          size={12}
+                          color={colors.secondary}
+                        />
+                      ))}
+                      <Text style={styles.reviewDate}>
+                        {new Date(r.created_at).toLocaleDateString()}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+                {r.comment ? <Text style={styles.reviewText}>{r.comment}</Text> : null}
+              </View>
+            ))
+          )}
         </View>
       </ScrollView>
 
@@ -331,6 +412,52 @@ export default function PropertyDetailScreen() {
               />
               <TouchableOpacity testID="send-chat-btn" style={styles.submitBtn} onPress={sendFirstMessage}>
                 <Text style={styles.submitText}>Send Message</Text>
+              </TouchableOpacity>
+            </View>
+          </KeyboardAwareScrollView>
+        </View>
+      </Modal>
+
+      {/* Review modal */}
+      <Modal visible={showReview} transparent animationType="slide" onRequestClose={() => setShowReview(false)}>
+        <View style={styles.overlay}>
+          <KeyboardAwareScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "flex-end" }} bottomOffset={16}>
+            <View style={styles.sheet}>
+              <View style={styles.sheetHeader}>
+                <Text style={styles.sheetTitle}>Write a Review</Text>
+                <TouchableOpacity onPress={() => setShowReview(false)}>
+                  <Ionicons name="close" size={22} color={colors.text} />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.label}>Rating</Text>
+              <View style={styles.starPickerRow}>
+                {[1, 2, 3, 4, 5].map((s) => (
+                  <TouchableOpacity
+                    key={s}
+                    testID={`star-${s}`}
+                    onPress={() => setRating(s)}
+                    hitSlop={6}
+                  >
+                    <Ionicons
+                      name={s <= rating ? "star" : "star-outline"}
+                      size={34}
+                      color={colors.secondary}
+                    />
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={styles.label}>Your review</Text>
+              <TextInput
+                testID="review-text-input"
+                style={[styles.input, { height: 100 }]}
+                placeholder="Share your experience..."
+                placeholderTextColor={colors.textLight}
+                value={reviewText}
+                onChangeText={setReviewText}
+                multiline
+              />
+              <TouchableOpacity testID="submit-review-btn" style={styles.submitBtn} onPress={submitReview}>
+                <Text style={styles.submitText}>Post Review</Text>
               </TouchableOpacity>
             </View>
           </KeyboardAwareScrollView>
@@ -536,4 +663,49 @@ const styles = StyleSheet.create({
   },
   bridgeCallText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   bridgeCancel: { color: colors.textMuted, fontSize: 13, marginTop: 6, padding: 8 },
+  reviewHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+  },
+  ratingSummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 4,
+    marginHorizontal: 0,
+  },
+  avgRating: { fontSize: 15, fontWeight: "700", color: colors.text },
+  reviewCount: { fontSize: 12, color: colors.textMuted },
+  writeReviewBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: colors.primaryLight,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    marginTop: spacing.md,
+  },
+  writeReviewText: { fontSize: 12, color: colors.primary, fontWeight: "700" },
+  noReviews: { fontSize: 13, color: colors.textMuted, textAlign: "center", padding: spacing.md, fontStyle: "italic" },
+  reviewCard: {
+    backgroundColor: colors.background,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    marginTop: spacing.sm,
+    gap: 6,
+  },
+  reviewTop: { flexDirection: "row", gap: spacing.sm, alignItems: "center" },
+  reviewAvatar: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: colors.primary,
+    alignItems: "center", justifyContent: "center",
+  },
+  reviewAvatarText: { color: "#fff", fontWeight: "800" },
+  reviewerName: { fontSize: 13, fontWeight: "700", color: colors.text },
+  starsRow: { flexDirection: "row", gap: 2, alignItems: "center", marginTop: 2 },
+  reviewDate: { fontSize: 11, color: colors.textMuted, marginLeft: 6 },
+  reviewText: { fontSize: 13, color: colors.textMuted, lineHeight: 20 },
+  starPickerRow: { flexDirection: "row", justifyContent: "space-around", marginVertical: spacing.sm },
 });

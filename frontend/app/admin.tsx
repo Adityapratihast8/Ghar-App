@@ -17,18 +17,23 @@ import { colors, spacing, radius, shadow, formatPrice } from "@/src/theme";
 export default function AdminScreen() {
   const router = useRouter();
   const [stats, setStats] = useState<any>(null);
-  const [tab, setTab] = useState<"pending" | "approved" | "rejected">("pending");
+  const [tab, setTab] = useState<"pending" | "approved" | "rejected" | "calls" | "users">("pending");
   const [props, setProps] = useState<any[]>([]);
+  const [calls, setCalls] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     try {
-      const [s, p] = await Promise.all([
-        api.adminStats().catch(() => null),
-        api.adminList(tab).catch(() => []),
-      ]);
+      const s = await api.adminStats().catch(() => null);
       setStats(s);
-      setProps(p);
+      if (tab === "calls") {
+        setCalls(await api.adminCallRequests().catch(() => []));
+      } else if (tab === "users") {
+        setUsers(await api.adminUsers().catch(() => []));
+      } else {
+        setProps(await api.adminList(tab).catch(() => []));
+      }
     } finally {
       setLoading(false);
     }
@@ -72,15 +77,15 @@ export default function AdminScreen() {
         )}
 
         <View style={styles.tabsRow}>
-          {(["pending", "approved", "rejected"] as const).map((t) => (
+          {(["pending", "approved", "rejected", "calls", "users"] as const).map((t) => (
             <TouchableOpacity
               key={t}
               testID={`admin-tab-${t}`}
               style={[styles.tab, tab === t && styles.tabActive]}
-              onPress={() => setTab(t)}
+              onPress={() => { setLoading(true); setTab(t); }}
             >
               <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>
-                {t.charAt(0).toUpperCase() + t.slice(1)}
+                {t === "calls" ? "Calls" : t === "users" ? "Users" : t.charAt(0).toUpperCase() + t.slice(1)}
               </Text>
             </TouchableOpacity>
           ))}
@@ -88,6 +93,86 @@ export default function AdminScreen() {
 
         {loading ? (
           <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xl }} />
+        ) : tab === "calls" ? (
+          calls.length === 0 ? (
+            <Text style={styles.empty}>No call requests yet</Text>
+          ) : (
+            calls.map((c) => (
+              <View key={c.id} style={styles.callCard}>
+                <View style={styles.callHeader}>
+                  <Ionicons name="call" size={16} color={colors.primary} />
+                  <Text style={styles.callTitle} numberOfLines={1}>{c.property_title}</Text>
+                  <View style={[styles.callStatus, callStatusStyle(c.status)]}>
+                    <Text style={styles.callStatusText}>{c.status.toUpperCase()}</Text>
+                  </View>
+                </View>
+                <View style={styles.callRowInfo}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.callLabel}>CALLER</Text>
+                    <Text style={styles.callVal}>{c.caller_name || "—"}</Text>
+                    <Text style={styles.callPhone}>{c.caller_phone}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.callLabel}>OWNER</Text>
+                    <Text style={styles.callVal}>{c.owner_name || "—"}</Text>
+                    <Text style={styles.callPhone}>{c.owner_phone}</Text>
+                  </View>
+                </View>
+                <Text style={styles.callTime}>
+                  {new Date(c.created_at).toLocaleString()}
+                </Text>
+                {c.status === "pending" ? (
+                  <View style={styles.callActions}>
+                    <TouchableOpacity
+                      testID={`call-connected-${c.id}`}
+                      style={styles.actionApprove}
+                      onPress={async () => { await api.adminUpdateCall(c.id, "connected"); load(); }}
+                    >
+                      <Text style={styles.actionApproveText}>Mark Connected</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      testID={`call-missed-${c.id}`}
+                      style={styles.actionReject}
+                      onPress={async () => { await api.adminUpdateCall(c.id, "missed"); load(); }}
+                    >
+                      <Text style={styles.actionRejectText}>Missed</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+              </View>
+            ))
+          )
+        ) : tab === "users" ? (
+          users.length === 0 ? (
+            <Text style={styles.empty}>No users yet</Text>
+          ) : (
+            users.map((u) => (
+              <View key={u.id} style={styles.userCard}>
+                <View style={styles.userAvatarSquare}>
+                  <Ionicons name="person" size={22} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.userName}>{u.name || "Anonymous"}</Text>
+                  <Text style={styles.userPhone}>{u.phone}</Text>
+                  {u.email ? <Text style={styles.userEmail}>{u.email}</Text> : null}
+                  <View style={styles.userMetaRow}>
+                    <View style={[styles.roleTag, roleStyle(u.role)]}>
+                      <Text style={styles.roleTagText}>{u.role.toUpperCase()}</Text>
+                    </View>
+                    {u.verified ? (
+                      <View style={styles.verifiedTag}>
+                        <Ionicons name="shield-checkmark" size={11} color={colors.primary} />
+                        <Text style={styles.verifiedTagText}>Verified</Text>
+                      </View>
+                    ) : null}
+                    <Text style={styles.userDate}>
+                      Joined {new Date(u.created_at).toLocaleDateString()}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            ))
+          )
         ) : props.length === 0 ? (
           <Text style={styles.empty}>No properties in this state</Text>
         ) : (
@@ -158,6 +243,18 @@ function StatCard({ label, value, icon, color = colors.primary }: any) {
   );
 }
 
+function callStatusStyle(status: string) {
+  if (status === "connected") return { backgroundColor: colors.primary };
+  if (status === "missed") return { backgroundColor: colors.danger };
+  return { backgroundColor: colors.warning };
+}
+
+function roleStyle(role: string) {
+  if (role === "admin") return { backgroundColor: colors.accent };
+  if (role === "owner") return { backgroundColor: colors.primary };
+  return { backgroundColor: colors.textMuted };
+}
+
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
   header: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
@@ -200,4 +297,45 @@ const styles = StyleSheet.create({
   actionRejectText: { fontSize: 11, color: "#fff", fontWeight: "700" },
   actionFeature: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.sm, backgroundColor: colors.secondary, flexDirection: "row", alignItems: "center", gap: 4 },
   actionFeatureText: { fontSize: 11, color: "#fff", fontWeight: "700" },
+  callCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginTop: spacing.md,
+    gap: 8,
+    ...shadow.card,
+  },
+  callHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
+  callTitle: { flex: 1, fontSize: 14, fontWeight: "700", color: colors.text },
+  callStatus: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 },
+  callStatusText: { color: "#fff", fontSize: 9, fontWeight: "800" },
+  callRowInfo: { flexDirection: "row", gap: spacing.md, marginTop: 4 },
+  callLabel: { fontSize: 9, color: colors.textMuted, fontWeight: "700", letterSpacing: 0.5 },
+  callVal: { fontSize: 13, color: colors.text, fontWeight: "600", marginTop: 2 },
+  callPhone: { fontSize: 11, color: colors.textMuted },
+  callTime: { fontSize: 11, color: colors.textLight, marginTop: 4 },
+  callActions: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm },
+  userCard: {
+    flexDirection: "row",
+    gap: spacing.md,
+    backgroundColor: colors.surface,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    marginTop: spacing.md,
+    ...shadow.card,
+  },
+  userAvatarSquare: {
+    width: 48, height: 48, borderRadius: 24,
+    backgroundColor: colors.primaryLight,
+    alignItems: "center", justifyContent: "center",
+  },
+  userName: { fontSize: 15, fontWeight: "700", color: colors.text },
+  userPhone: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+  userEmail: { fontSize: 11, color: colors.textLight },
+  userMetaRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6, flexWrap: "wrap" },
+  roleTag: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
+  roleTagText: { color: "#fff", fontSize: 9, fontWeight: "800" },
+  verifiedTag: { flexDirection: "row", alignItems: "center", gap: 2, backgroundColor: colors.primaryLight, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999 },
+  verifiedTagText: { color: colors.primary, fontSize: 10, fontWeight: "700" },
+  userDate: { fontSize: 10, color: colors.textLight },
 });

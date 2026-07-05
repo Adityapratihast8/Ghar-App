@@ -96,6 +96,28 @@ export const api = {
 
   getBridge: () => apiFetch<{ display: string; dial: string; label: string }>("/config/bridge", { auth: false }),
 
+  // Reviews
+  listReviews: (property_id: string) =>
+    apiFetch<{ reviews: any[]; avg_rating: number; count: number }>(`/properties/${property_id}/reviews`, { auth: false }),
+  addReview: (property_id: string, rating: number, comment: string) =>
+    apiFetch(`/properties/${property_id}/reviews`, { method: "POST", body: { property_id, rating, comment } }),
+
+  // Call logs
+  logBridgeCall: (property_id: string) =>
+    apiFetch(`/bridge-calls`, { method: "POST", body: { property_id } }),
+
+  // AI extras
+  priceSuggest: (payload: any) =>
+    apiFetch<any>("/ai/price-suggest", { method: "POST", body: payload }),
+  checkDuplicate: (payload: any) =>
+    apiFetch<{ duplicate: boolean; matches: any[] }>("/ai/check-duplicate", { method: "POST", body: payload }),
+
+  // Admin extras
+  adminUsers: () => apiFetch<any[]>("/admin/users"),
+  adminCallRequests: () => apiFetch<any[]>("/admin/call-requests"),
+  adminUpdateCall: (id: string, status: "pending" | "connected" | "missed") =>
+    apiFetch(`/admin/call-requests/${id}`, { method: "PUT", query: { status } }),
+
   adminStats: () => apiFetch<any>("/admin/stats"),
   adminList: (status?: string) => apiFetch<any[]>("/admin/properties", { query: { status } }),
   adminApprove: (id: string) => apiFetch(`/admin/properties/${id}/approve`, { method: "PUT" }),

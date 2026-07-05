@@ -6,11 +6,13 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { api } from "@/src/api/client";
 import { colors, spacing, radius } from "@/src/theme";
 
@@ -27,20 +29,16 @@ const CATEGORIES = [
 
 const AMENITIES = ["Lift", "Parking", "CCTV", "Gym", "Power Backup", "Water Supply", "WiFi", "Garden", "Swimming Pool"];
 
-// Default images from design guidelines for demo
-const DEFAULT_IMAGES = [
-  "https://images.pexels.com/photos/18153132/pexels-photo-18153132.jpeg",
-  "https://images.pexels.com/photos/35339499/pexels-photo-35339499.jpeg",
-  "https://images.pexels.com/photos/20418771/pexels-photo-20418771.jpeg",
-  "https://images.pexels.com/photos/8146330/pexels-photo-8146330.jpeg",
-];
-
 export default function AddPropertyScreen() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
+  const [priceLoading, setPriceLoading] = useState(false);
   const [error, setError] = useState("");
+  const [images, setImages] = useState<string[]>([]);
+  const [priceSuggest, setPriceSuggest] = useState<any>(null);
+  const [duplicates, setDuplicates] = useState<any[]>([]);
 
   const [form, setForm] = useState({
     title: "",
@@ -66,6 +64,59 @@ export default function AddPropertyScreen() {
 
   const toggleAmenity = (a: string) => {
     set("amenities", form.amenities.includes(a) ? form.amenities.filter((x) => x !== a) : [...form.amenities, a]);
+  };
+
+  const pickImages = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (perm.status !== "granted") {
+      setError("Photo library permission is needed to add photos");
+      return;
+    }
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: true,
+      quality: 0.6,
+      base64: true,
+      selectionLimit: 8 - images.length,
+    });
+    if (res.canceled) return;
+    const newImgs = res.assets
+      .map((a) => (a.base64 ? `data:image/jpeg;base64,${a.base64}` : a.uri))
+      .filter(Boolean);
+    setImages([...images, ...newImgs].slice(0, 8));
+    setError("");
+  };
+
+  const removeImage = (idx: number) => {
+    setImages(images.filter((_, i) => i !== idx));
+  };
+
+  const suggestPrice = async () => {
+    if (!form.city || !form.locality || !form.area) {
+      setError("Fill city, locality and area first for price suggestion");
+      return;
+    }
+    setPriceLoading(true);
+    setError("");
+    try {
+      const res = await api.priceSuggest({
+        city: form.city,
+        locality: form.locality,
+        category: form.category,
+        listing_type: form.listing_type,
+        area: parseFloat(form.area) || 0,
+        bedrooms: parseInt(form.bedrooms) || 0,
+      });
+      setPriceSuggest(res);
+      if (res.estimated_total_min && !form.price) {
+        // pre-fill with lower bound
+        set("price", String(res.estimated_total_min));
+      }
+    } catch (e: any) {
+      setError(e.message || "Price suggestion failed");
+    } finally {
+      setPriceLoading(false);
+    }
   };
 
   const generateAI = async () => {
@@ -97,8 +148,26 @@ export default function AddPropertyScreen() {
 
   const submit = async () => {
     setError("");
+    if (images.length === 0) {
+      setError("Please upload at least 1 photo of your property");
+      setStep(3);
+      return;
+    }
     setSaving(true);
     try {
+      // Duplicate check
+      const dup = await api.checkDuplicate({
+        title: form.title,
+        city: form.city,
+        locality: form.locality,
+        bedrooms: parseInt(form.bedrooms) || 0,
+      }).catch(() => ({ duplicate: false, matches: [] }));
+      if (dup.duplicate && duplicates.length === 0) {
+        setDuplicates(dup.matches || []);
+        setError("Similar listings detected. Please review below before submitting.");
+        setSaving(false);
+        return;
+      }
       const payload = {
         title: form.title,
         description: form.description,
@@ -116,7 +185,7 @@ export default function AddPropertyScreen() {
         area: parseFloat(form.area) || 0,
         furnishing: form.furnishing,
         amenities: form.amenities,
-        images: DEFAULT_IMAGES.slice(0, 2),
+        images,
         ready_to_move: form.ready_to_move,
       };
       await api.createProperty(payload);
@@ -241,6 +310,38 @@ export default function AddPropertyScreen() {
           <>
             <Text style={styles.sectionTitle}>Property Details</Text>
 
+            {/* AI Price Suggestion */}
+            <TouchableOpacity
+              testID="price-suggest-btn"
+              style={styles.aiPriceBtn}
+              onPress={suggestPrice}
+              disabled={priceLoading}
+            >
+              {priceLoading ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <>
+                  <Ionicons name="sparkles" size={16} color={colors.primary} />
+                  <Text style={styles.aiPriceText}>Get AI Price Suggestion</Text>
+                </>
+              )}
+            </TouchableOpacity>
+            {priceSuggest ? (
+              <View style={styles.priceHintBox}>
+                <Text style={styles.priceHintTitle}>
+                  Suggested range: ₹{(priceSuggest.per_sqft_min ?? "?")}-{(priceSuggest.per_sqft_max ?? "?")} / sqft
+                </Text>
+                {priceSuggest.estimated_total_min ? (
+                  <Text style={styles.priceHintTotal}>
+                    Estimated total: ₹{Number(priceSuggest.estimated_total_min).toLocaleString()} - ₹{Number(priceSuggest.estimated_total_max).toLocaleString()}
+                  </Text>
+                ) : null}
+                {priceSuggest.note ? (
+                  <Text style={styles.priceHintNote}>{priceSuggest.note}</Text>
+                ) : null}
+              </View>
+            ) : null}
+
             <Text style={styles.label}>
               {form.listing_type === "rent" ? "Monthly Rent (₹) *" : "Price (₹) *"}
             </Text>
@@ -327,7 +428,48 @@ export default function AddPropertyScreen() {
 
         {step === 3 && (
           <>
-            <Text style={styles.sectionTitle}>Amenities & Description</Text>
+            <Text style={styles.sectionTitle}>Photos, Amenities & Description</Text>
+
+            {/* Image picker */}
+            <Text style={styles.label}>Property Photos * (upto 8)</Text>
+            <View style={styles.imagesGrid}>
+              {images.map((img, i) => (
+                <View key={i} style={styles.imgTile}>
+                  <Image source={{ uri: img }} style={styles.imgTileImg} />
+                  <TouchableOpacity
+                    testID={`remove-img-${i}`}
+                    style={styles.imgRemove}
+                    onPress={() => removeImage(i)}
+                  >
+                    <Ionicons name="close" size={12} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+              {images.length < 8 && (
+                <TouchableOpacity testID="pick-images-btn" style={styles.imgAdd} onPress={pickImages}>
+                  <Ionicons name="add" size={26} color={colors.primary} />
+                  <Text style={styles.imgAddText}>Add Photo</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {duplicates.length > 0 ? (
+              <View style={styles.dupBox}>
+                <View style={styles.dupHeader}>
+                  <Ionicons name="warning" size={16} color={colors.warning} />
+                  <Text style={styles.dupTitle}>Similar listings already exist</Text>
+                </View>
+                {duplicates.map((d: any) => (
+                  <Text key={d.id} style={styles.dupItem}>
+                    · {d.title} — {d.locality}, {d.city} ({Math.round((d.similarity || 0) * 100)}% match)
+                  </Text>
+                ))}
+                <Text style={styles.dupHint}>
+                  If your listing is genuinely different, tap Submit again to proceed.
+                </Text>
+              </View>
+            ) : null}
+
             <Text style={styles.label}>Amenities</Text>
             <View style={styles.chipRow}>
               {AMENITIES.map((a) => (
@@ -367,7 +509,7 @@ export default function AddPropertyScreen() {
               multiline
             />
             <Text style={styles.note}>
-              Note: Your property will be reviewed by our team before going live. Default images are used for demo — you can add real photos after approval.
+              Your listing will be reviewed by our team before going live. AI checks for duplicates automatically.
             </Text>
           </>
         )}
@@ -450,4 +592,63 @@ const styles = StyleSheet.create({
   },
   disabled: { opacity: 0.5 },
   footerBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+  aiPriceBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    borderStyle: "dashed",
+    borderRadius: radius.md,
+    paddingVertical: 12,
+    marginBottom: spacing.sm,
+  },
+  aiPriceText: { color: colors.primary, fontWeight: "700", fontSize: 14 },
+  priceHintBox: {
+    backgroundColor: colors.primaryLight,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    marginBottom: spacing.sm,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primary,
+  },
+  priceHintTitle: { fontSize: 14, fontWeight: "700", color: colors.primary },
+  priceHintTotal: { fontSize: 13, color: colors.text, marginTop: 4 },
+  priceHintNote: { fontSize: 12, color: colors.textMuted, marginTop: 4, fontStyle: "italic" },
+  imagesGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: spacing.md },
+  imgTile: { width: "31%", aspectRatio: 1, position: "relative", borderRadius: radius.md, overflow: "hidden" },
+  imgTileImg: { width: "100%", height: "100%" },
+  imgRemove: {
+    position: "absolute",
+    top: 4, right: 4,
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    alignItems: "center", justifyContent: "center",
+  },
+  imgAdd: {
+    width: "31%",
+    aspectRatio: 1,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderStyle: "dashed",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+    gap: 2,
+  },
+  imgAddText: { fontSize: 11, color: colors.textMuted, fontWeight: "600" },
+  dupBox: {
+    backgroundColor: "#FEF3C7",
+    padding: spacing.md,
+    borderRadius: radius.md,
+    marginBottom: spacing.md,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.warning,
+  },
+  dupHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
+  dupTitle: { fontSize: 13, fontWeight: "700", color: "#92400E" },
+  dupItem: { fontSize: 12, color: "#92400E", marginTop: 4 },
+  dupHint: { fontSize: 11, color: colors.textMuted, marginTop: 6, fontStyle: "italic" },
 });
