@@ -768,6 +768,129 @@ async def admin_call_requests(user: dict = Depends(require_admin)):
     return reqs
 
 
+@api_router.get("/admin/messages")
+async def admin_messages(user: dict = Depends(require_admin)):
+    """All chat messages across the platform with sender/receiver + property context."""
+    msgs = await db.messages.find({}, {"_id": 0}).sort("created_at", -1).limit(500).to_list(length=500)
+    # Batch fetch users and properties for enrichment
+    user_ids = {m["from_user_id"] for m in msgs} | {m["to_user_id"] for m in msgs}
+    prop_ids = {m["property_id"] for m in msgs}
+    users = {u["id"]: u for u in await db.users.find(
+        {"id": {"$in": list(user_ids)}}, {"_id": 0, "id": 1, "name": 1, "phone": 1, "role": 1}
+    ).to_list(length=500)}
+    props = {p["id"]: p for p in await db.properties.find(
+        {"id": {"$in": list(prop_ids)}}, {"_id": 0, "id": 1, "title": 1, "city": 1}
+    ).to_list(length=500)}
+    for m in msgs:
+        m["from_user"] = users.get(m["from_user_id"])
+        m["to_user"] = users.get(m["to_user_id"])
+        m["property"] = props.get(m["property_id"])
+    return msgs
+
+
+@api_router.get("/admin/visits")
+async def admin_visits(user: dict = Depends(require_admin)):
+    """All visit requests with buyer + owner + property info."""
+    visits = await db.visits.find({}, {"_id": 0}).sort("created_at", -1).to_list(length=300)
+    user_ids = {v["buyer_id"] for v in visits} | {v["owner_id"] for v in visits}
+    prop_ids = {v["property_id"] for v in visits}
+    users = {u["id"]: u for u in await db.users.find(
+        {"id": {"$in": list(user_ids)}}, {"_id": 0, "id": 1, "name": 1, "phone": 1}
+    ).to_list(length=300)}
+    props = {p["id"]: p for p in await db.properties.find(
+        {"id": {"$in": list(prop_ids)}}, {"_id": 0, "id": 1, "title": 1, "city": 1, "listing_type": 1}
+    ).to_list(length=300)}
+    for v in visits:
+        v["buyer"] = users.get(v["buyer_id"])
+        v["owner"] = users.get(v["owner_id"])
+        v["property"] = props.get(v["property_id"])
+    return visits
+
+
+@api_router.get("/admin/reviews")
+async def admin_reviews(user: dict = Depends(require_admin)):
+    """All property reviews across the platform."""
+    revs = await db.reviews.find({}, {"_id": 0}).sort("created_at", -1).limit(500).to_list(length=500)
+    prop_ids = {r["property_id"] for r in revs}
+    props = {p["id"]: p for p in await db.properties.find(
+        {"id": {"$in": list(prop_ids)}}, {"_id": 0, "id": 1, "title": 1, "city": 1}
+    ).to_list(length=500)}
+    for r in revs:
+        r["property"] = props.get(r["property_id"])
+    return revs
+
+
+@api_router.delete("/admin/reviews/{review_id}")
+async def admin_delete_review(review_id: str, user: dict = Depends(require_admin)):
+    await db.reviews.delete_one({"id": review_id})
+    return {"success": True}
+
+
+@api_router.get("/admin/dashboard")
+async def admin_dashboard(user: dict = Depends(require_admin)):
+    """Rich dashboard: counts + trend + top cities + recent activity."""
+    now = datetime.now(timezone.utc)
+    seven_days_ago = now - timedelta(days=7)
+
+    total_users = await db.users.count_documents({})
+    total_owners = await db.users.count_documents({"role": "owner"})
+    total_buyers = await db.users.count_documents({"role": "buyer"})
+    total_props = await db.properties.count_documents({})
+    pending = await db.properties.count_documents({"status": "pending"})
+    approved = await db.properties.count_documents({"status": "approved"})
+    rent = await db.properties.count_documents({"listing_type": "rent", "status": "approved"})
+    sale = await db.properties.count_documents({"listing_type": "sale", "status": "approved"})
+    total_calls = await db.call_requests.count_documents({})
+    total_visits = await db.visits.count_documents({})
+    total_messages = await db.messages.count_documents({})
+    total_reviews = await db.reviews.count_documents({})
+
+    new_users_7d = await db.users.count_documents({"created_at": {"$gte": seven_days_ago}})
+    new_props_7d = await db.properties.count_documents({"created_at": {"$gte": seven_days_ago}})
+    new_calls_7d = await db.call_requests.count_documents({"created_at": {"$gte": seven_days_ago}})
+
+    # Top 5 cities by listing count
+    top_cities_pipeline = [
+        {"$match": {"status": "approved"}},
+        {"$group": {"_id": "$city", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 5},
+    ]
+    top_cities = [
+        {"city": doc["_id"], "count": doc["count"]}
+        for doc in await db.properties.aggregate(top_cities_pipeline).to_list(length=5)
+    ]
+
+    # Recent activity: last 10 across calls + visits + new users
+    recent_calls = await db.call_requests.find({}, {"_id": 0}).sort("created_at", -1).limit(5).to_list(length=5)
+    recent_visits = await db.visits.find({}, {"_id": 0}).sort("created_at", -1).limit(5).to_list(length=5)
+
+    return {
+        "totals": {
+            "users": total_users,
+            "owners": total_owners,
+            "buyers": total_buyers,
+            "properties": total_props,
+            "pending": pending,
+            "approved": approved,
+            "rent": rent,
+            "sale": sale,
+            "calls": total_calls,
+            "visits": total_visits,
+            "messages": total_messages,
+            "reviews": total_reviews,
+        },
+        "last_7_days": {
+            "new_users": new_users_7d,
+            "new_properties": new_props_7d,
+            "new_calls": new_calls_7d,
+        },
+        "top_cities": top_cities,
+        "recent_calls": recent_calls,
+        "recent_visits": recent_visits,
+    }
+
+
 @api_router.put("/admin/call-requests/{req_id}")
 async def admin_update_call(req_id: str, status: str, user: dict = Depends(require_admin)):
     if status not in ("pending", "connected", "missed"):

@@ -117,6 +117,11 @@ export const api = {
   adminCallRequests: () => apiFetch<any[]>("/admin/call-requests"),
   adminUpdateCall: (id: string, status: "pending" | "connected" | "missed") =>
     apiFetch(`/admin/call-requests/${id}`, { method: "PUT", query: { status } }),
+  adminMessages: () => apiFetch<any[]>("/admin/messages"),
+  adminVisits: () => apiFetch<any[]>("/admin/visits"),
+  adminReviews: () => apiFetch<any[]>("/admin/reviews"),
+  adminDeleteReview: (id: string) => apiFetch(`/admin/reviews/${id}`, { method: "DELETE" }),
+  adminDashboard: () => apiFetch<any>("/admin/dashboard"),
 
   adminStats: () => apiFetch<any>("/admin/stats"),
   adminList: (status?: string) => apiFetch<any[]>("/admin/properties", { query: { status } }),
