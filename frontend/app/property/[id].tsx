@@ -46,6 +46,8 @@ export default function PropertyDetailScreen() {
   const [chatText, setChatText] = useState("");
   const [saved, setSaved] = useState(false);
   const [toast, setToast] = useState("");
+  const [showBridge, setShowBridge] = useState(false);
+  const [bridge, setBridge] = useState<{ display: string; dial: string; label: string } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -115,9 +117,19 @@ export default function PropertyDetailScreen() {
     }
   };
 
-  const callOwner = () => {
-    if (!prop?.owner?.phone) return;
-    Linking.openURL(`tel:${prop.owner.phone}`).catch(() => {});
+  const callOwner = async () => {
+    if (!user) return router.push("/auth/phone");
+    try {
+      const b = bridge || (await api.getBridge());
+      setBridge(b);
+    } catch {}
+    setShowBridge(true);
+  };
+
+  const dialBridge = async () => {
+    const b = bridge || (await api.getBridge().catch(() => null));
+    if (b?.dial) Linking.openURL(`tel:${b.dial}`).catch(() => {});
+    setShowBridge(false);
   };
 
   if (loading) {
@@ -330,6 +342,36 @@ export default function PropertyDetailScreen() {
           <Text style={styles.toastText}>{toast}</Text>
         </View>
       ) : null}
+
+      {/* Ghar Connect Bridge Modal */}
+      <Modal visible={showBridge} transparent animationType="fade" onRequestClose={() => setShowBridge(false)}>
+        <TouchableOpacity
+          style={[styles.overlay, { justifyContent: "center" }]}
+          activeOpacity={1}
+          onPress={() => setShowBridge(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.bridgeSheet} onPress={() => {}}>
+            <View style={styles.bridgeIconWrap}>
+              <Ionicons name="call" size={30} color="#fff" />
+            </View>
+            <Text style={styles.bridgeTitle}>Ghar Connect</Text>
+            <Text style={styles.bridgeSub}>
+              Our Ghar.com team will bridge your call directly with the owner. No brokers, no middlemen — just a helpful voice guiding you both.
+            </Text>
+            <View style={styles.bridgeNumBox}>
+              <Ionicons name="shield-checkmark" size={16} color={colors.primary} />
+              <Text style={styles.bridgeNum}>{bridge?.display || "1800-GHAR-COM"}</Text>
+            </View>
+            <TouchableOpacity testID="bridge-dial-btn" style={styles.bridgeCallBtn} onPress={dialBridge}>
+              <Ionicons name="call" size={18} color="#fff" />
+              <Text style={styles.bridgeCallText}>Call Ghar Connect</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowBridge(false)}>
+              <Text style={styles.bridgeCancel}>Not now</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -453,4 +495,45 @@ const styles = StyleSheet.create({
   submitText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   toast: { position: "absolute", left: 20, right: 20, backgroundColor: colors.text, padding: 12, borderRadius: radius.md, alignItems: "center" },
   toastText: { color: "#fff", fontWeight: "600" },
+  bridgeSheet: {
+    backgroundColor: colors.surface,
+    marginHorizontal: spacing.lg,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  bridgeIconWrap: {
+    width: 64, height: 64, borderRadius: 32,
+    backgroundColor: colors.primary,
+    alignItems: "center", justifyContent: "center",
+    marginBottom: 6,
+  },
+  bridgeTitle: { fontSize: 20, fontWeight: "800", color: colors.text },
+  bridgeSub: { fontSize: 13, color: colors.textMuted, textAlign: "center", lineHeight: 20 },
+  bridgeNumBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.primaryLight,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+    marginTop: spacing.sm,
+  },
+  bridgeNum: { fontSize: 15, fontWeight: "700", color: colors.primary, letterSpacing: 0.5 },
+  bridgeCallBtn: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 14,
+    borderRadius: radius.md,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: spacing.md,
+    width: "100%",
+    justifyContent: "center",
+  },
+  bridgeCallText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+  bridgeCancel: { color: colors.textMuted, fontSize: 13, marginTop: 6, padding: 8 },
 });

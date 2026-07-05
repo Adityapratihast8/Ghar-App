@@ -13,9 +13,10 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { api } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
-import { colors, spacing, radius } from "@/src/theme";
+import { colors, spacing, radius, shadow } from "@/src/theme";
 import { PropertyCard, type PropertyItem } from "@/src/components/PropertyCard";
 
 const CATEGORIES = [
@@ -96,36 +97,53 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>{user?.name ? `Hi, ${user.name.split(" ")[0]}` : "Welcome"}</Text>
-            <Text style={styles.subGreeting}>Find your dream home</Text>
-          </View>
-          <TouchableOpacity
-            testID="profile-shortcut"
-            style={styles.avatar}
-            onPress={() => router.push("/(tabs)/profile")}
-          >
-            <Ionicons name="person" size={20} color={colors.primary} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Search Bar */}
-        <TouchableOpacity
-          testID="home-search-bar"
-          style={styles.searchBar}
-          onPress={() => router.push("/(tabs)/search")}
+        {/* Gradient hero */}
+        <LinearGradient
+          colors={[colors.primary, colors.gradientEnd]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.hero}
         >
-          <Ionicons name="search" size={18} color={colors.textMuted} />
-          <TextInput
-            placeholder="Search by city, locality, or landmark"
-            placeholderTextColor={colors.textLight}
-            style={styles.searchInput}
-            editable={false}
-          />
-          <Ionicons name="options" size={18} color={colors.primary} />
-        </TouchableOpacity>
+          <View style={styles.heroTopRow}>
+            <View>
+              <Text style={styles.heroGreeting}>
+                {user?.name ? `Hi, ${user.name.split(" ")[0]} 👋` : "Namaste 👋"}
+              </Text>
+              <Text style={styles.heroTag}>Find your dream home — zero broker fees</Text>
+            </View>
+            <TouchableOpacity
+              testID="profile-shortcut"
+              style={styles.heroAvatar}
+              onPress={() => router.push("/(tabs)/profile")}
+            >
+              <Ionicons name="person" size={20} color="#fff" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Search Bar */}
+          <TouchableOpacity
+            testID="home-search-bar"
+            style={styles.searchBar}
+            onPress={() => router.push("/(tabs)/search")}
+          >
+            <Ionicons name="search" size={18} color={colors.textMuted} />
+            <TextInput
+              placeholder="Search city, locality, landmark..."
+              placeholderTextColor={colors.textLight}
+              style={styles.searchInput}
+              editable={false}
+            />
+            <View style={styles.searchIconBtn}>
+              <Ionicons name="options" size={16} color="#fff" />
+            </View>
+          </TouchableOpacity>
+
+          {/* No-broker strip */}
+          <View style={styles.noBrokerStrip}>
+            <Ionicons name="shield-checkmark" size={14} color="#fff" />
+            <Text style={styles.noBrokerText}>100% Owner-listed · No brokers allowed</Text>
+          </View>
+        </LinearGradient>
 
         {/* Listing type tabs */}
         <View style={styles.tabsRow}>
@@ -219,6 +237,24 @@ export default function HomeScreen() {
 
         <View style={{ height: spacing.xl }} />
       </ScrollView>
+
+      {/* Floating AI Assistant FAB */}
+      <TouchableOpacity
+        testID="assistant-fab"
+        style={styles.fab}
+        onPress={() => router.push("/assistant")}
+        activeOpacity={0.85}
+      >
+        <LinearGradient
+          colors={[colors.primary, colors.accent]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.fabInner}
+        >
+          <Ionicons name="sparkles" size={22} color="#fff" />
+        </LinearGradient>
+        <View style={styles.fabDot} />
+      </TouchableOpacity>
     </SafeAreaView>
   );
 }
@@ -226,37 +262,52 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
   container: { paddingBottom: spacing.xl },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: spacing.lg,
+  hero: {
     paddingTop: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.lg,
+    borderBottomLeftRadius: radius.xl,
+    borderBottomRightRadius: radius.xl,
   },
-  greeting: { fontSize: 22, fontWeight: "800", color: colors.text },
-  subGreeting: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.primaryLight,
-    alignItems: "center",
-    justifyContent: "center",
+  heroTopRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  heroGreeting: { fontSize: 22, fontWeight: "800", color: "#fff", letterSpacing: -0.3 },
+  heroTag: { fontSize: 12, color: "rgba(255,255,255,0.9)", marginTop: 2, fontWeight: "500" },
+  heroAvatar: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.25)",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 1.5, borderColor: "rgba(255,255,255,0.4)",
   },
   searchBar: {
     marginTop: spacing.md,
-    marginHorizontal: spacing.lg,
     backgroundColor: colors.surface,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: spacing.md,
-    paddingVertical: 12,
+    paddingLeft: spacing.md,
+    paddingRight: 6,
+    paddingVertical: 6,
     borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
     gap: spacing.sm,
+    ...shadow.card,
   },
-  searchInput: { flex: 1, fontSize: 14, color: colors.text, padding: 0 },
+  searchInput: { flex: 1, fontSize: 14, color: colors.text, padding: 0, paddingVertical: 8 },
+  searchIconBtn: {
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: colors.primary,
+    alignItems: "center", justifyContent: "center",
+  },
+  noBrokerStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: spacing.md,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    alignSelf: "flex-start",
+  },
+  noBrokerText: { color: "#fff", fontSize: 11, fontWeight: "700" },
   tabsRow: {
     flexDirection: "row",
     marginHorizontal: spacing.lg,
@@ -300,4 +351,19 @@ const styles = StyleSheet.create({
   catLabel: { fontSize: 11, color: colors.text, fontWeight: "500" },
   vertList: { paddingHorizontal: spacing.lg, marginTop: spacing.md, gap: spacing.md },
   empty: { textAlign: "center", color: colors.textMuted, marginTop: spacing.lg },
+  fab: {
+    position: "absolute",
+    right: spacing.lg,
+    bottom: 24,
+    ...shadow.strong,
+  },
+  fabInner: {
+    width: 56, height: 56, borderRadius: 28,
+    alignItems: "center", justifyContent: "center",
+  },
+  fabDot: {
+    position: "absolute", top: 2, right: 2,
+    width: 12, height: 12, borderRadius: 6,
+    backgroundColor: colors.accent, borderWidth: 2, borderColor: "#fff",
+  },
 });

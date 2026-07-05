@@ -21,6 +21,9 @@ JWT_SECRET = os.environ.get('JWT_SECRET', 'ghar-dev-secret')
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')
 
 MOCK_OTP = "123456"
+# Ghar Connect bridge number - our company employee mediates buyer<->owner calls
+GHAR_BRIDGE_PHONE = "+911800GHARCOM"  # display; real dial number
+GHAR_BRIDGE_DIAL = "+919000012345"
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
@@ -138,6 +141,11 @@ class AIDescReq(BaseModel):
     locality: str = ""
     amenities: List[str] = []
     price: float = 0
+
+
+class ChatBotMsg(BaseModel):
+    session_id: str
+    message: str
 
 
 # ----------- Auth helpers -----------
@@ -516,7 +524,7 @@ async def feature_property(property_id: str, featured: bool = True, user: dict =
 @api_router.post("/ai/generate-description")
 async def generate_description(req: AIDescReq, user: dict = Depends(get_current_user)):
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta
     except ImportError:
         raise HTTPException(status_code=500, detail="AI service not available")
 
@@ -546,8 +554,7 @@ Write in engaging English, highlight lifestyle benefits, mention key amenities. 
     try:
         text_parts: List[str] = []
         async for ev in chat.stream_message(UserMessage(text=prompt)):
-            # duck-type: TextDelta has .content
-            if hasattr(ev, "content"):
+            if isinstance(ev, TextDelta):
                 text_parts.append(ev.content)
         description = "".join(text_parts).strip()
         if not description:
@@ -564,6 +571,76 @@ Write in engaging English, highlight lifestyle benefits, mention key amenities. 
 @api_router.get("/")
 async def root():
     return {"message": "Ghar.com API", "status": "ok"}
+
+
+@api_router.get("/config/bridge")
+async def get_bridge_number():
+    """Ghar Connect bridge — every property Call button routes here.
+    Our employee then patches buyer and owner on a 3-way call. No broker fees."""
+    return {"display": GHAR_BRIDGE_PHONE, "dial": GHAR_BRIDGE_DIAL, "label": "Ghar Connect"}
+
+
+# ----------- AI Chatbot (Ghar Assistant) -----------
+@api_router.post("/ai/chat")
+async def ai_chat(req: ChatBotMsg, user: dict = Depends(get_current_user)):
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta
+    except ImportError:
+        raise HTTPException(status_code=500, detail="AI service not available")
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=500, detail="AI key not configured")
+
+    # Persist message history for context
+    await db.bot_messages.insert_one({
+        "session_id": req.session_id,
+        "user_id": user["id"],
+        "role": "user",
+        "text": req.message,
+        "created_at": datetime.now(timezone.utc),
+    })
+
+    system = (
+        "You are Ghar Assistant, a friendly, concise real-estate helper for Ghar.com — India's no-broker "
+        "property platform. You help users search for properties, understand rental/purchase terms, explain "
+        "amenities, guide them through listing, and answer common questions about paperwork (rent agreement, "
+        "stamp duty, home loan basics). Never recommend brokers. If asked to speak with the owner, tell them "
+        "to tap the Call or Chat button on the property page — Ghar Connect bridges the call. "
+        "Keep answers under 90 words. Use short paragraphs. Prefer Indian context (₹ symbol, cities like "
+        "Mumbai/Bengaluru/Delhi, BHK terminology). If user writes in Hindi/Hinglish, reply in the same style."
+    )
+
+    chat = LlmChat(
+        api_key=EMERGENT_LLM_KEY,
+        session_id=req.session_id,
+        system_message=system,
+    ).with_model("gemini", "gemini-3-flash-preview")
+
+    try:
+        parts: List[str] = []
+        async for ev in chat.stream_message(UserMessage(text=req.message)):
+            if isinstance(ev, TextDelta):
+                parts.append(ev.content)
+        reply = "".join(parts).strip() or "I'm having trouble right now. Please try again."
+    except Exception as e:
+        logger.exception("AI chat failed")
+        raise HTTPException(status_code=500, detail=f"AI chat failed: {e}")
+
+    await db.bot_messages.insert_one({
+        "session_id": req.session_id,
+        "user_id": user["id"],
+        "role": "assistant",
+        "text": reply,
+        "created_at": datetime.now(timezone.utc),
+    })
+    return {"reply": reply}
+
+
+@api_router.get("/ai/chat/history")
+async def ai_chat_history(session_id: str, user: dict = Depends(get_current_user)):
+    msgs = await db.bot_messages.find(
+        {"session_id": session_id, "user_id": user["id"]}, {"_id": 0}
+    ).sort("created_at", 1).to_list(length=200)
+    return msgs
 
 
 SAMPLE_IMAGES = [

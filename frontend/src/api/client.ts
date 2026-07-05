@@ -89,6 +89,13 @@ export const api = {
   generateDescription: (payload: any) =>
     apiFetch<{ description: string }>("/ai/generate-description", { method: "POST", body: payload }),
 
+  chatBot: (session_id: string, message: string) =>
+    apiFetch<{ reply: string }>("/ai/chat", { method: "POST", body: { session_id, message } }),
+  chatBotHistory: (session_id: string) =>
+    apiFetch<any[]>("/ai/chat/history", { query: { session_id } }),
+
+  getBridge: () => apiFetch<{ display: string; dial: string; label: string }>("/config/bridge", { auth: false }),
+
   adminStats: () => apiFetch<any>("/admin/stats"),
   adminList: (status?: string) => apiFetch<any[]>("/admin/properties", { query: { status } }),
   adminApprove: (id: string) => apiFetch(`/admin/properties/${id}/approve`, { method: "PUT" }),

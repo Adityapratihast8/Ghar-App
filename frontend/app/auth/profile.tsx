@@ -20,6 +20,7 @@ export default function ProfileScreen() {
   const [name, setName] = useState(user?.name || "");
   const [email, setEmail] = useState(user?.email || "");
   const [role, setRole] = useState<"owner" | "buyer">("buyer");
+  const [notBroker, setNotBroker] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -27,6 +28,10 @@ export default function ProfileScreen() {
     setError("");
     if (name.trim().length < 2) {
       setError("Please enter your full name");
+      return;
+    }
+    if (role === "owner" && !notBroker) {
+      setError("Please confirm you are the property owner (not a broker/agent)");
       return;
     }
     setLoading(true);
@@ -91,6 +96,31 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
+        {role === "owner" ? (
+          <View style={styles.brokerBox}>
+            <View style={styles.brokerHeader}>
+              <Ionicons name="alert-circle" size={18} color={colors.secondary} />
+              <Text style={styles.brokerTitle}>No-Broker Policy</Text>
+            </View>
+            <Text style={styles.brokerText}>
+              Ghar.com only allows genuine property owners. Broker or agent listings are removed and accounts blocked.
+            </Text>
+            <TouchableOpacity
+              testID="not-broker-checkbox"
+              style={styles.checkRow}
+              onPress={() => setNotBroker(!notBroker)}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.check, notBroker && styles.checkActive]}>
+                {notBroker ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}
+              </View>
+              <Text style={styles.checkLabel}>
+                I confirm I am the property owner, not a broker or agent.
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <TouchableOpacity
@@ -147,4 +177,28 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: { opacity: 0.5 },
   buttonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  brokerBox: {
+    backgroundColor: colors.secondaryLight,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginTop: spacing.md,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.secondary,
+  },
+  brokerHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
+  brokerTitle: { fontSize: 13, fontWeight: "700", color: colors.secondary },
+  brokerText: { fontSize: 12, color: colors.text, marginTop: 4, lineHeight: 18 },
+  checkRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: spacing.md },
+  check: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: colors.textMuted,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  checkLabel: { flex: 1, fontSize: 13, color: colors.text, fontWeight: "500" },
 });
