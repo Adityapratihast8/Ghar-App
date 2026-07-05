@@ -10,8 +10,10 @@ BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://direct-listing-1.p
 API = f"{BASE_URL}/api"
 
 # Test phones - unique per test run to avoid collision
+import random
 RUN = uuid.uuid4().hex[:6]
-NEW_BUYER_PHONE = f"98{RUN[:8]}"[:10].ljust(10, "0")
+# Digits-only 10-digit phone (backend normalizer strips non-digits & requires exactly 10)
+NEW_BUYER_PHONE = "98" + "".join(random.choices("0123456789", k=8))
 
 
 def _post(path, body=None, token=None):

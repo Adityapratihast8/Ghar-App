@@ -174,12 +174,22 @@ def sanitize(doc: dict) -> dict:
     return doc
 
 
+def _normalize_phone(p: str) -> str:
+    """Normalize to +91XXXXXXXXXX format. Accepts bare 10-digit or +91-prefixed."""
+    digits = ''.join(c for c in (p or '') if c.isdigit())
+    # If already 12 digits with country code (91XXXXXXXXXX) strip to 10
+    if len(digits) == 12 and digits.startswith('91'):
+        digits = digits[2:]
+    if len(digits) != 10:
+        return p or ''  # let validator downstream reject
+    return f"+91{digits}"
+
+
 # ----------- Auth Routes -----------
 @api_router.post("/auth/send-otp")
 async def send_otp(req: SendOtpReq):
-    # Mock OTP - always 123456
-    phone = req.phone.strip()
-    if len(phone) < 10:
+    phone = _normalize_phone(req.phone)
+    if not phone.startswith("+91"):
         raise HTTPException(status_code=400, detail="Invalid phone number")
     logger.info(f"Sending OTP to {phone}: {MOCK_OTP}")
     return {"success": True, "message": "OTP sent successfully", "hint": f"Use {MOCK_OTP} for demo"}
@@ -187,7 +197,9 @@ async def send_otp(req: SendOtpReq):
 
 @api_router.post("/auth/verify-otp")
 async def verify_otp(req: VerifyOtpReq):
-    phone = req.phone.strip()
+    phone = _normalize_phone(req.phone)
+    if not phone.startswith("+91"):
+        raise HTTPException(status_code=400, detail="Invalid phone number")
     if req.otp != MOCK_OTP:
         raise HTTPException(status_code=400, detail="Invalid OTP")
     existing = await db.users.find_one({"phone": phone}, {"_id": 0})
@@ -564,11 +576,13 @@ SAMPLE_IMAGES = [
 
 async def seed_data():
     """Seed admin user and sample properties if empty."""
-    # Ensure admin
-    admin = await db.users.find_one({"phone": "9999999999"}, {"_id": 0})
+    # Ensure admin (create OR upgrade to admin role if user exists)
+    admin = await db.users.find_one({"phone": "+919999999999"}, {"_id": 0})
     if not admin:
+        # migrate legacy bare-number seeds if present
+        await db.users.delete_many({"phone": {"$in": ["9999999999", "9111111111", "9222222222"]}})
         admin_user = User(
-            phone="9999999999",
+            phone="+919999999999",
             name="Ghar Admin",
             email="admin@ghar.com",
             role="admin",
@@ -576,13 +590,19 @@ async def seed_data():
             profile_complete=True,
         )
         await db.users.insert_one(admin_user.model_dump())
-        logger.info("Seeded admin user: phone=9999999999 otp=123456")
+        logger.info("Seeded admin user: phone=+919999999999 otp=123456")
+    elif admin.get("role") != "admin":
+        await db.users.update_one(
+            {"phone": "+919999999999"},
+            {"$set": {"role": "admin", "name": admin.get("name") or "Ghar Admin", "verified": True, "profile_complete": True}},
+        )
+        logger.info("Upgraded existing user to admin role: +919999999999")
 
     # Seed sample owner
-    owner = await db.users.find_one({"phone": "9111111111"}, {"_id": 0})
+    owner = await db.users.find_one({"phone": "+919111111111"}, {"_id": 0})
     if not owner:
         owner_user = User(
-            phone="9111111111",
+            phone="+919111111111",
             name="Rajesh Kumar",
             email="rajesh@example.com",
             role="owner",
@@ -593,10 +613,10 @@ async def seed_data():
         owner = owner_user.model_dump()
 
     # Seed sample buyer
-    buyer = await db.users.find_one({"phone": "9222222222"}, {"_id": 0})
+    buyer = await db.users.find_one({"phone": "+919222222222"}, {"_id": 0})
     if not buyer:
         buyer_user = User(
-            phone="9222222222",
+            phone="+919222222222",
             name="Priya Sharma",
             email="priya@example.com",
             role="buyer",

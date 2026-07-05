@@ -1,0 +1,32 @@
+{
+  "summary": "RETEST PASSED: Phone normalization fix verified end-to-end. All 28/28 backend pytest cases pass (100%), including AI description generation (Emergent LLM budget appears restored in this run). Backend: verify-otp accepts both bare '9999999999' AND '+919999999999' and returns the seeded admin (role=admin); same for owner (+919111111111 -> role=owner) and buyer (+919222222222 -> role=buyer). Owner property creation returns status=pending and is retrievable via /api/properties/mine. Admin /api/admin/stats and /api/admin/properties?status=pending work. Frontend: login as 9999999999 via UI now lands on tabs home as 'Ghar Admin' with ADMIN badge; Profile tab shows 'Admin Panel' button; tapping it navigates to /admin which renders stats (11 users, 4 owners, 8 properties, 6 rent, 2 sale) and pending/approved/rejected property tabs. Home tab shows Featured + Latest sections with property cards including seeded + created-in-test properties. Deprecated Expo/RN style warnings persist (shadow* and pointerEvents) - not a functional blocker.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "Multiple screens", "issue": "Console deprecation: '\"shadow*\" style props are deprecated. Use \"boxShadow\".' Migrate shadowColor/shadowOffset/shadowOpacity/shadowRadius to the boxShadow API across StyleSheet definitions in /app/frontend/app and /app/frontend/src."},
+      {"component": "Multiple screens", "issue": "Console deprecation: 'props.pointerEvents is deprecated. Use style.pointerEvents'. Move pointerEvents from JSX props to style objects wherever used."}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "(Non-blocking cleanup) Migrate deprecated React Native props: shadow* style props -> boxShadow, and pointerEvents prop -> style.pointerEvents across the app.",
+    "(Nice-to-have) Consider marking /api/ai/generate-description with a graceful fallback message if Emergent LLM budget is 0 in future environments (currently works but was flaky in iteration_1)."
+  ],
+  "critical_code_review_comments": [
+    "_normalize_phone in server.py correctly canonicalizes to +91XXXXXXXXXX for both bare and +91-prefixed inputs; seed also uses +91-prefixed phones; migration path to upgrade legacy admin to role=admin is in place - solid fix.",
+    "PUT /api/properties/{id} still resets status to 'pending' after any edit (including by admin) - acceptable if intended, otherwise consider preserving status for admin edits."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py (fixed test-only bug: NEW_BUYER_PHONE was generated from uuid hex containing non-digit chars, causing normalizer to reject it; now uses random digits only)"],
+  "success_rate": {"backend": "100% (28/28)", "frontend": "100% for tested flows (admin login -> Profile -> Admin Panel -> stats render). Wishlist/visit UI flows not re-tested this iteration since backend equivalents (Wishlist/Visits/Chat pytest classes) pass."},
+  "seed_data_creation": "During pytest run: 1 test property (TEST Sample Property -> TEST Updated Title, Bengaluru, rent 35000) created via owner API and approved+featured by admin. 1 disposable buyer user created via mock OTP with random 10-digit phone. Cumulative from iteration_1 the DB now has ~11 users and ~8 properties.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All RETEST items from iteration_1 are green. Phone normalization + admin/owner/buyer seed roles work for both bare and +91 formats. Admin UI flow (login 9999999999 -> Profile -> Admin Panel) works. Only remaining items are cosmetic RN deprecation warnings. If further UI depth needed, cover: wishlist add/remove on Home & Search cards, Saved tab reflection, Property detail sticky CTA (Call/Chat/Schedule Visit) modal submission - backend equivalents all pass, so a light UI smoke should suffice.",
+  "rca_of_issue": "N/A - previous iteration_1 bug (phone-format mismatch causing seeded admin/owner/buyer to be unreachable via the UI) is now fixed. Root cause was exact-match phone lookup vs. differing storage/input formats. Fix implemented in server.py::_normalize_phone (strips non-digits, handles 91 country-code, produces canonical +91XXXXXXXXXX) and seeding now uses +91-prefixed phones with a migration to upgrade legacy admin. Verified via both pytest and live curl for +91-prefixed variant."
+}

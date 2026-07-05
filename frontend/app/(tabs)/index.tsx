@@ -123,7 +123,6 @@ export default function HomeScreen() {
             placeholderTextColor={colors.textLight}
             style={styles.searchInput}
             editable={false}
-            pointerEvents="none"
           />
           <Ionicons name="options" size={18} color={colors.primary} />
         </TouchableOpacity>
