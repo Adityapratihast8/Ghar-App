@@ -1,0 +1,42 @@
+{
+  "summary": "Backend: 27/28 pytest cases pass (96.4%). AI description generation returns 500 due to Emergent LLM key budget exhaustion ('Max budget: 0.0'). Frontend: Ghar.com loads correctly on phone auth screen with brand, OTP flow works, new-user profile flow works, tabs home renders Featured & Latest sections with 9 property cards, property detail page shows sticky CTA (Call/Chat/Schedule Visit). CRITICAL BUG discovered: Frontend sends phone as '+91XXXXXXXXXX' but backend seeds admin/owner/buyer phones as bare 10-digit strings ('9999999999' etc.) - so logging in with admin/owner phones via UI creates a NEW buyer user instead of matching the seeded record, making Admin Panel and seeded owner's 5 properties inaccessible via the UI. React-Native deprecation warnings observed for shadow* and pointerEvents style props.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/ai/generate-description", "issue": "Returns 500 'Budget has been exceeded! Current cost: 0.0, Max budget: 0.0'. EMERGENT_LLM_KEY has no allocated budget in this environment. Blocks AI description feature end-to-end.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/auth/verify-otp", "issue": "Phone normalization mismatch: seeded users are stored as bare 10-digit phones (9999999999/9111111111/9222222222) while the frontend always sends '+91<10-digit>'. As a result the seeded admin/owner/buyer are effectively unreachable from the UI. Recommend normalizing phone (strip non-digits or always prepend/strip +91) in send_otp/verify_otp OR update seed to store '+91XXXXXXXXXX'."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Admin login via UI", "issue": "Logging in with 9999999999 through the phone screen creates a new buyer user (routes to /auth/profile) instead of resolving to the seeded admin. Admin Panel is unreachable through the standard UI login flow.", "affected_testIDs": ["phone-input", "send-otp-button", "otp-input-0..5"]},
+      {"flow": "Owner login via UI (seeded properties)", "issue": "Logging in with 9111111111 creates a fresh buyer user; the 5 seeded properties owned by the seeded owner are NOT returned by /api/properties/mine, so the intended owner cannot manage them through the app.", "affected_testIDs": ["phone-input"]}
+    ],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "Multiple screens", "issue": "Console deprecation: '\"shadow*\" style props are deprecated. Use \"boxShadow\".' Migrate shadowColor/shadowOffset/shadowOpacity/shadowRadius to the new boxShadow API (Expo SDK 52+ / RN 0.76+). Reference: various StyleSheet usages under /app/frontend/app and /app/frontend/src."},
+      {"component": "Multiple screens", "issue": "Console deprecation: 'props.pointerEvents is deprecated. Use style.pointerEvents'. Move pointerEvents from JSX props to style objects."}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Fix phone normalization: either strip '+91' server-side in send_otp/verify_otp (recommended) OR change seed to insert '+919999999999' / '+919111111111' / '+919222222222'. Without this, Admin Panel and owner property management cannot be reached from the app.",
+    "Resolve Emergent LLM key budget so /api/ai/generate-description returns 200. Current error: 'Budget has been exceeded! Current cost: 0.0, Max budget: 0.0'. Verify EMERGENT_LLM_KEY value and its associated budget/quota.",
+    "Migrate deprecated React Native style props (shadow* -> boxShadow; pointerEvents prop -> style.pointerEvents) across the app.",
+    "Consider adding server-side phone validation to enforce a single canonical format (E.164 or bare 10-digit) to avoid future duplication."
+  ],
+  "critical_code_review_comments": [
+    "server.py stores phones in whatever format the client sends without normalization; combined with hard-coded seed values (bare 10-digit) this breaks seeded-account access from the app.",
+    "PUT /api/properties/{id} resets status to 'pending' after any edit even for admin edits - acceptable per requirement but worth confirming intended UX.",
+    "AI description endpoint depends on external budget which is currently zero; consider a graceful degraded fallback message instead of raw 500 detail leaking litellm text."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "96.4% (27/28)", "frontend": "Core flows pass (phone -> OTP -> profile -> tabs -> property detail). Admin/owner seed login flows blocked by phone-format bug."},
+  "seed_data_creation": "Created 1 TEST property via owner API (title 'TEST Updated Title', Bengaluru, rent 35000) during CRUD tests; approved+featured by admin. Also created 2 disposable buyer test users (phones 8112233445, 8112233446) via mock OTP flow.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "After main agent fixes phone normalization, re-run /app/backend/tests/backend_test.py and re-verify UI admin login: 9999999999 should land on (tabs) home with role=admin and Profile tab should show 'Admin Panel'. Owner login 9111111111 should show 5 seeded properties under 'My Listings'. Emergent LLM budget must be topped up for AI description test to pass.",
+  "rca_of_issue": "Phone-format mismatch RCA: (1) seed_data() in /app/backend/server.py inserts users with phone='9999999999' (line 571) etc. (2) Frontend /app/frontend/app/auth/phone.tsx line 33-34 sends sendOtp(`+91${clean}`). (3) verify_otp() (line 193) does an exact-match lookup db.users.find_one({'phone': phone}). Because '+919999999999' != '9999999999', no match -> new User(phone='+919999999999', role='buyer') is created. Reproduction: POST /api/auth/verify-otp {phone: '+919999999999', otp:'123456'} returns is_new=true with role=buyer. Mitigation: normalize phones on write & read (e.g. keep only trailing 10 digits) OR update seed to '+91' prefix."
+}
